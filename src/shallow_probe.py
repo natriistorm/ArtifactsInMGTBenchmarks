@@ -1,9 +1,4 @@
-#!/usr/bin/env python3
 """
-shallow_probe.py
-
-Experiments A and B of the DocInsights submission.
-
 A. Shallow-feature probe: can a logistic regression over ~25 content-free
    surface features separate human from machine text as well as a fine-tuned
    detector? Reports per-subset macro-F1 / AUC with bootstrap CIs, plus the
@@ -14,9 +9,6 @@ B. Format-normalization intervention: the causal test. Collapse whitespace
    runs, strip newlines, NFKC-fold unicode punctuation, then re-run the
    identical probe. A large drop means the benchmark's separability lived in
    document formatting inherited from extraction, not in language.
-
-Both variants also run a TF-IDF + LR reference so the surface-only number can be
-read against a lexical model on the same split.
 
 Usage
 -----

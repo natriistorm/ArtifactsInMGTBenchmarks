@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
 """
-contamination.py
-
-Experiment C: how much do the scientific-document ATD benchmarks overlap?
-
-M4 -> SemEval-2024 Task 8 -> COLING-2025 Task 1 form a lineage, so "train on one,
-test on another" is not an out-of-distribution test to the extent that they share
-documents. This script quantifies that, and also reports the near-duplicate rate
-*within* each benchmark, which is an independent data-quality finding.
-
-Method: 5-word shingles over case- and whitespace-normalized text, 128-permutation
-MinHash, LSH banding (32 bands x 4 rows) for candidate generation, then Jaccard
-estimated from the full signature and thresholded. Exact duplicates are reported
-separately via a hash of the normalized text. MinHash is implemented here rather
-than pulled from datasketch to keep the artifact reproducible with no extra deps.
-
+How much do the scientific-document ATD benchmarks overlap?
 Usage
 -----
     python contamination.py

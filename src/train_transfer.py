@@ -1,30 +1,5 @@
-#!/usr/bin/env python3
+
 """
-train_transfer.py
-
-Experiments E5-E7: the mDeBERTa side of the paper.
-
-Trains a detector per (subset, condition) and evaluates every model on every
-subset's held-out test set, producing decontaminated transfer matrices. The
-conditions are the ACE ablation:
-
-    random_raw        random split, raw text            <- the standard protocol
-                                                           papers report
-    cluster_raw       near-dup-cluster-aware split      <- isolates the
-                                                           duplication leak (F2)
-    cluster_canon     + format canonicalization         <- isolates the
-                                                           format artifact (F1)
-    cluster_canon_poe + artifact-debiased training      <- full ACE
-
-Debiasing uses the shallow surface probe from shallow_probe.py as an explicit
-bias-only model, fit on the training split only. Each example is reweighted by
-(1 - p_bias(y_i|x_i))^gamma, so gradient mass moves to documents the artifact
-cannot explain. At inference the detector is used alone.
-
-Transfer cells are decontaminated: when evaluating a model trained on A against
-subset B's test set, documents in B_test with a near-duplicate in A_train are
-excluded, since F3 showed 40-80% overlap across the M4/SemEval24/COLING25 lineage.
-
 Usage
 -----
     python train_transfer.py --prepare                 # splits + clusters + bias probes
