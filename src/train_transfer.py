@@ -57,15 +57,11 @@ LR = 2e-5
 BATCH = 8
 EPOCHS = 1
 GAMMA = 1.0
-WEIGHT_CLIP = 10.0      # max weight, in units of the mean weight
-LONG_SUBSETS = {"M4_peerread", "IDMGSP_sci_paper"}   # median >1k tokens -> 512
+WEIGHT_CLIP = 10.0
+LONG_SUBSETS = {"M4_peerread", "IDMGSP_sci_paper"}
 CONDITIONS = ["random_raw", "cluster_raw", "cluster_canon", "cluster_canon_poe"]
 WORK = Path("results/transfer")
 
-
-# --------------------------------------------------------------------------- #
-# splits                                                                       #
-# --------------------------------------------------------------------------- #
 
 def cluster_ids(texts: list[str], threshold: float = 0.8) -> np.ndarray:
     """Union-find over LSH candidate pairs -> a near-duplicate cluster id per doc.
@@ -90,7 +86,6 @@ def cluster_ids(texts: list[str], threshold: float = 0.8) -> np.ndarray:
         if rx != ry:
             parent[max(rx, ry)] = min(rx, ry)
 
-    # exact duplicates first (cheap and catches the bulk of the M4 redundancy)
     by_hash: dict[int, int] = {}
     for i, t in enumerate(texts):
         h = _h64(norm_text(t))
@@ -126,7 +121,6 @@ def make_splits(df: pd.DataFrame, cid: np.ndarray, rng: np.random.Generator,
             tr += list(i[N_TEST // 2: N_TEST // 2 + N_TRAIN // 2])
         return np.array(tr), np.array(te)
 
-    # assign clusters to test until the per-class quota is met, then to train
     order = rng.permutation(np.unique(cid))
     want_te = {0: N_TEST // 2, 1: N_TEST // 2}
     want_tr = {0: N_TRAIN // 2, 1: N_TRAIN // 2}
@@ -136,7 +130,6 @@ def make_splits(df: pd.DataFrame, cid: np.ndarray, rng: np.random.Generator,
     for c in order:
         mem = np.where(cid == c)[0]
         labs = y[mem]
-        # a cluster goes wholly to test if it still fits the test quota
         if all(got_te[l] + int((labs == l).sum()) <= want_te[l] for l in (0, 1)) and \
            any(got_te[l] < want_te[l] for l in (0, 1)):
             te += list(mem)
@@ -168,8 +161,6 @@ def prepare(data: Path) -> None:
             continue
         rng = np.random.default_rng(SEED)
         df = pd.read_parquet(fp, columns=["text", "label"])
-        # cap before clustering: MinHash over 250k docs is not worth the time and
-        # the splits only need N_TRAIN + N_TEST documents anyway
         cap = 25_000
         if len(df) > cap:
             df = df.sample(cap, random_state=SEED).reset_index(drop=True)
@@ -186,22 +177,16 @@ def prepare(data: Path) -> None:
             df.loc[te, f"split_{tag}"] = "test"
             print(f"       {tag:8s} train={len(tr)} test={len(te)}")
 
-        # bias-only model: fit on the cluster-split TRAIN only, predict everywhere
         tr_mask = (df.split_cluster == "train").to_numpy()
         F = pd.DataFrame([features(t) for t in df.text])
         clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=5000))
         clf.fit(F[tr_mask].values, df.label[tr_mask])
         p = clf.predict_proba(F.values)
-        # probability the bias model assigns to the TRUE label
         df["p_bias"] = p[np.arange(len(df)), df.label.to_numpy()]
         df.to_parquet(out, index=False)
         print(f"       clusters={n_clust} ({100 * n_clust / len(df):.1f}% of docs)  "
               f"mean p_bias(train)={df.p_bias[tr_mask].mean():.3f}")
 
-
-# --------------------------------------------------------------------------- #
-# training                                                                     #
-# --------------------------------------------------------------------------- #
 
 def condition_spec(cond: str) -> tuple[str, str, bool]:
     """-> (split column tag, text column, use debiasing)"""
@@ -219,9 +204,6 @@ def train_one(name: str, cond: str, device: str, seed: int = 0,
     from torch.utils.data import DataLoader, Dataset
     from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
 
-    # The backbone must appear in the filename. Without it, switching MODEL silently
-    # collides with the previous backbone's checkpoints: the [skip] branch fires and the
-    # old results get read back as if they were the new model's.
     tag_model = MODEL.split("/")[-1]
     ckpt = WORK / f"model_{name}__{cond}__{tag_model}__s{seed}{'__smoke' if smoke else ''}.json"
     if ckpt.exists():
@@ -243,7 +225,7 @@ def train_one(name: str, cond: str, device: str, seed: int = 0,
     w = np.ones(len(tr), dtype=np.float32)
     if debias:
         w = np.power(1.0 - tr.p_bias.to_numpy(dtype=np.float32), GAMMA)
-        w = w / max(w.mean(), 1e-8)   # keep the effective learning rate comparable
+        w = w / max(w.mean(), 1e-8)
         w = np.clip(w, 0.0, WEIGHT_CLIP)
         w = w / max(w.mean(), 1e-8)
         print(f"   weights: mean={w.mean():.3f} max={w.max():.2f} "
@@ -265,7 +247,6 @@ def train_one(name: str, cond: str, device: str, seed: int = 0,
     total = len(dl) * EPOCHS
     sch = get_linear_schedule_with_warmup(opt, int(0.1 * total), total)
     lossf = torch.nn.CrossEntropyLoss(reduction="none")
-    # bf16 autocast on CUDA only; MPS autocast is not reliable for this model
     actx = (torch.autocast("cuda", dtype=torch.bfloat16) if (amp and device == "cuda")
             else torch.autocast("cpu", enabled=False))
 
@@ -284,7 +265,6 @@ def train_one(name: str, cond: str, device: str, seed: int = 0,
             if step % 100 == 0:
                 print(f"   step {step}/{len(dl)} loss={loss.item():.4f}", flush=True)
 
-    # evaluate on every subset's test set (matched text preprocessing)
     mdl.eval()
     rows = []
     for fp in sorted(WORK.glob("*.parquet")):
@@ -297,7 +277,6 @@ def train_one(name: str, cond: str, device: str, seed: int = 0,
             te = te.groupby("label", group_keys=False).head(smoke // 2).reset_index(drop=True)
         texts, ys = te[textcol].tolist(), te.label.to_numpy()
         preds = np.empty(len(texts), dtype=np.int64)
-        # length-sorted batching: pad to each batch's own maximum, not the global one
         order = np.argsort([len(t) for t in texts])
         eb = max(32, batch)
         with torch.no_grad():
@@ -319,15 +298,10 @@ def train_one(name: str, cond: str, device: str, seed: int = 0,
     return ckpt
 
 
-# --------------------------------------------------------------------------- #
-# reporting                                                                    #
-# --------------------------------------------------------------------------- #
-
 def report() -> None:
     """Decontaminated transfer matrices + Delta_gen per condition."""
     from sklearn.metrics import f1_score
 
-    # near-dup masks: which test docs of B appear in A's training split?
     subs = [f.stem for f in sorted(WORK.glob("*.parquet")) if not f.stem.startswith("model_")]
     train_hashes = {}
     for s in subs:
@@ -366,14 +340,10 @@ def report() -> None:
         print("\n" + gap.round(3).to_string())
         print(f"  MEAN in-domain={ind.mean():.3f}  ood={ood.mean():.3f}  Delta_gen={(ind - ood).mean():.3f}")
 
-    # ---- the ACE ablation table: mean +/- std over seeds ------------------- #
     def agg(sub: pd.DataFrame, col: str) -> pd.DataFrame:
         per_seed = sub.groupby(["condition", "train", "seed"])[col].mean().reset_index()
         m = per_seed.pivot_table(index="train", columns="condition", values=col, aggfunc="mean")
         s = per_seed.pivot_table(index="train", columns="condition", values=col, aggfunc="std")
-        # With a single seed the std is NaN and pivot_table drops the column
-        # outright, which would blank the whole cell instead of just the +/-.
-        # Reindex so a partially-completed array still reports its means.
         s = s.reindex(index=m.index, columns=m.columns).fillna(0.0)
         return m.round(3).astype(str) + s.round(3).map(lambda v: f" ±{v}")
 
@@ -382,7 +352,6 @@ def report() -> None:
     print("\n=== decontaminated OOD mean macro-F1 by condition (mean ± std over seeds) ===")
     print(agg(R[~R.in_domain], "f1_decontam").to_string())
 
-    # headline: does ACE trade in-domain for generalization?
     summ = []
     for cond, g in R.groupby("condition"):
         ps = g.groupby("seed").apply(
@@ -447,7 +416,7 @@ def main() -> None:
         for cond, n, s in jobs:
             try:
                 train_one(n, cond, dev, seed=s, batch=a.batch, amp=a.amp, smoke=a.smoke)
-            except Exception as e:                  # keep a long queue alive
+            except Exception as e:
                 print(f"[FAIL] {n}/{cond}/s{s}: {type(e).__name__}: {e}", flush=True)
     if a.report:
         report()

@@ -45,88 +45,54 @@ from pathlib import Path
 
 import pandas as pd
 
-# --------------------------------------------------------------------------- #
-# CONFIG — edit paths to your local files, then run.                          #
-# --------------------------------------------------------------------------- #
 
 @dataclass
 class DatasetSpec:
-    name: str                       # short name, used in the `dataset` column
-    kind: str                       # 'm4_family' or 'idmgsp'
-    path: str                       # file OR directory (dir => read all files in it)
-    vintage: str                    # free tag: m4 / semeval24 / coling25 / idmgsp
-    # optional explicit column overrides (leave None to auto-detect)
+    name: str
+    kind: str
+    path: str
+    vintage: str
     text_col: str | None = None
     label_col: str | None = None
     domain_col: str | None = None
     generator_col: str | None = None
-    # idmgsp only: which field to use as text
     idmgsp_text_field: str = "introduction"
 
 
 DATASETS: list[DatasetSpec] = [
-    # --- M4 GitHub layout: per-file human_text/machine_text pairs, domain from filename.
     DatasetSpec(name="M4",         kind="m4_paired", path="M4/data",                          vintage="m4"),
-    # --- SemEval-2024 Task 8: text/label/source schema, domain in `source`.
     DatasetSpec(name="SemEval24",  kind="m4_family", path="subtaskA_train_monolingual.jsonl",  vintage="semeval24"),
-    # --- COLING-2025 Task 1: domain lives in `sub_source`, NOT `source`
-    #     (`source` here is the upstream corpus tag, e.g. "m4gt"/"mage" — not a domain).
     DatasetSpec(name="COLING25",   kind="m4_family", path="coling.jsonl",                      vintage="coling25",
                 domain_col="sub_source"),
-    # --- IDMGSP: scientific paper introductions ---------------------------- #
     DatasetSpec(name="IDMGSP",     kind="idmgsp",    path="idmgsp_full.csv",                   vintage="idmgsp"),
-    # --- CheckGPT: CS / Physics abstracts, ground.json (human) vs GPT-WRI generations
-    #     (gpt_task1_prompt{1..4}.json — write-from-scratch given only the title; task2/3
-    #     "complete"/"polish" are excluded). Whole corpus is scientific abstracts already,
-    #     so there is no domain filter step here.
     DatasetSpec(name="CheckGPT",   kind="checkgpt",  path="checkgpt_v2",                       vintage="checkgpt_v2"),
-    # --- CHEAT: IEEE abstracts, ieee-init.jsonl (human) vs ieee-chatgpt-generation.jsonl
-    #     (write-from-scratch, same GPT-WRI convention as CheckGPT). ieee-chatgpt-polish
-    #     (rewrite of the human abstract) and ieee-chatgpt-fusion (human/AI hybrid) are
-    #     intentionally excluded for the same reason CheckGPT's task2/3 were.
     DatasetSpec(name="CHEAT",      kind="cheat",     path="CHEAT/data",                        vintage="cheat"),
 ]
 
-# CheckGPT sub-folder -> canonical domain name for the `domain` column.
 CHECKGPT_DOMAINS: dict[str, str] = {"CS": "cs_paper", "PHX": "physics_paper"}
 
-# Target scientific domains for the M4 family. Raw values are lowercased and
-# matched against these tokens by substring. NOTE: bare "review" is intentionally
-# NOT here — in M4 the peer-review domain is tagged "peerread"; "review" alone
-# would wrongly pull in product/Amazon reviews.
 DOMAIN_ALIASES: dict[str, tuple[str, ...]] = {
     "arxiv":    ("arxiv", "arxiv_abstract", "arxiv-abstract"),
     "peerread": ("peerread", "peer_read", "peer-read", "peerread_review"),
 }
 
-# Column auto-detection candidates (checked in order, case-insensitive).
 TEXT_CANDIDATES     = ("text", "content", "document", "review", "body", "generation")
 LABEL_CANDIDATES    = ("label", "labels", "class", "target", "is_generated", "generated", "machine")
 DOMAIN_CANDIDATES   = ("source", "domain", "domain_name", "subsource", "category", "genre")
 GENERATOR_CANDIDATES = ("model", "generator", "source_model", "llm", "model_name")
 
-# Label token normalization -> 0 (human) / 1 (machine).
 HUMAN_TOKENS   = {"0", "human", "h", "real", "original", "gold", "authentic"}
 MACHINE_TOKENS = {"1", "machine", "ai", "generated", "fake", "synthetic", "gpt", "llm", "bot"}
 
-# PHD / JSD_TTS reliability: these topological metrics need long texts. The paper
-# excluded RuATD (median ~99 tokens) and AuTex (~386) as too short. Flag a subset
-# as PHD-unreliable if its median whitespace-token count is below this.
 MIN_TOKENS_PHD = 250
 
-# Drop obviously degenerate rows below this many tokens (empty / truncated).
 MIN_TOKENS_KEEP = 5
 
-# Balanced sample written per (dataset, domain) subset, e.g. *_sample3000.parquet.
 SAMPLE_PER_CLASS = 1500
 SAMPLE_SEED = 42
 
 READABLE_SUFFIXES = {".jsonl", ".json", ".csv", ".tsv", ".parquet", ".pq"}
 
-
-# --------------------------------------------------------------------------- #
-# IO helpers                                                                  #
-# --------------------------------------------------------------------------- #
 
 def _read_one(fp: Path) -> pd.DataFrame:
     """Read a single file into a DataFrame, dispatching on suffix."""
@@ -134,7 +100,6 @@ def _read_one(fp: Path) -> pd.DataFrame:
     if suf == ".jsonl":
         return pd.read_json(fp, lines=True)
     if suf == ".json":
-        # could be a records list or a single object
         try:
             return pd.read_json(fp)
         except ValueError:
@@ -194,10 +159,6 @@ def _find_col(df: pd.DataFrame, candidates, override: str | None) -> str | None:
     return _find_name(df.columns, candidates, override)
 
 
-# --------------------------------------------------------------------------- #
-# Normalization                                                               #
-# --------------------------------------------------------------------------- #
-
 def normalize_domain(raw) -> str | None:
     if raw is None or (isinstance(raw, float) and pd.isna(raw)):
         return None
@@ -216,11 +177,9 @@ def normalize_label(raw) -> int | None:
         return 0
     if s in MACHINE_TOKENS:
         return 1
-    # numeric fallback: anything != 0 is treated as machine
     try:
         return 0 if float(s) == 0.0 else 1
     except ValueError:
-        # unknown string token — likely a generator name in a label col => machine
         return 1
 
 
@@ -230,10 +189,6 @@ def add_length_cols(df: pd.DataFrame) -> pd.DataFrame:
     df["n_tokens"] = df["text"].str.split().map(len)
     return df
 
-
-# --------------------------------------------------------------------------- #
-# Per-kind loaders                                                            #
-# --------------------------------------------------------------------------- #
 
 def _stream_jsonl_scientific(fp: Path, spec: DatasetSpec) -> pd.DataFrame:
     """Stream a single large .jsonl file line-by-line, keeping only rows whose
@@ -285,8 +240,6 @@ def _stream_jsonl_scientific(fp: Path, spec: DatasetSpec) -> pd.DataFrame:
 def process_m4_family(spec: DatasetSpec) -> pd.DataFrame:
     p = Path(spec.path)
     if p.is_file() and p.suffix.lower() == ".jsonl":
-        # Single large jsonl (SemEval/COLING releases): filter while streaming
-        # instead of concatenating the whole file into memory first.
         df = _stream_jsonl_scientific(p, spec)
         if df["label"].isna().any():
             n_bad = int(df["label"].isna().sum())
@@ -311,7 +264,6 @@ def process_m4_family(spec: DatasetSpec) -> pd.DataFrame:
             f"Columns present: {list(raw.columns)}. Set text_col/label_col in the spec."
         )
 
-    # Domain source: a column if present, else parse from the filename (per-file layout).
     if domain_col is not None:
         domain_raw = raw[domain_col]
     else:
@@ -328,7 +280,7 @@ def process_m4_family(spec: DatasetSpec) -> pd.DataFrame:
     })
 
     before = len(df)
-    df = df[df["domain"].notna()].copy()          # keep only arxiv / peerread
+    df = df[df["domain"].notna()].copy()
     print(f"  scientific-domain rows: {len(df):,} / {before:,} "
           f"({df['domain'].value_counts().to_dict()})")
 
@@ -397,7 +349,6 @@ def process_idmgsp(spec: DatasetSpec) -> pd.DataFrame:
 
     field = spec.idmgsp_text_field
     if field not in raw.columns:
-        # be forgiving about capitalization / spacing
         lower = {c.lower(): c for c in raw.columns}
         if field.lower() in lower:
             field = lower[field.lower()]
@@ -422,7 +373,6 @@ def process_idmgsp(spec: DatasetSpec) -> pd.DataFrame:
         "dataset": spec.name,
         "vintage": spec.vintage,
     })
-    # drop rows whose introduction is empty / missing
     df = df[df["text"].str.strip().ne("") & df["text"].str.lower().ne("nan")]
     df = df[df["label"].notna()].copy()
     df["label"] = df["label"].astype(int)
@@ -469,17 +419,13 @@ def process_checkgpt(spec: DatasetSpec) -> pd.DataFrame:
         print(f"  {ddir.name}/ground.json: {len(human):,} human rows")
         parts.append(human)
 
-        # GPT-WRI only: task1 = write the abstract from scratch given just the
-        # title. task2 ("complete", continues a truncated human abstract) and
-        # task3 ("polish", rewrites a full human abstract) are intentionally
-        # excluded — they aren't from-scratch generation.
         for f in sorted(ddir.glob("gpt_task1_prompt*.json")):
             data = _load_checkgpt_json(f)
             machine = pd.DataFrame({
                 "text": [str(v.get("abstract")) for v in data.values()],
                 "label": 1,
                 "domain": domain,
-                "generator": f.stem.removeprefix("gpt_"),   # e.g. "task1_prompt1"
+                "generator": f.stem.removeprefix("gpt_"),
             })
             print(f"  {ddir.name}/{f.name}: {len(machine):,} machine rows")
             parts.append(machine)
@@ -549,10 +495,6 @@ def sample_balanced(g: pd.DataFrame, n_per_class: int, seed: int = SAMPLE_SEED) 
     return pd.concat(picks, ignore_index=True).sample(frac=1, random_state=seed).reset_index(drop=True)
 
 
-# --------------------------------------------------------------------------- #
-# Reporting                                                                   #
-# --------------------------------------------------------------------------- #
-
 def build_report(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for (dataset, vintage, domain), g in df.groupby(["dataset", "vintage", "domain"], dropna=False):
@@ -574,10 +516,6 @@ def build_report(df: pd.DataFrame) -> pd.DataFrame:
         })
     return pd.DataFrame(rows).sort_values(["domain", "vintage", "dataset"]).reset_index(drop=True)
 
-
-# --------------------------------------------------------------------------- #
-# Main                                                                        #
-# --------------------------------------------------------------------------- #
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Isolate scientific subsets for ATD dataset-quality analysis.")
@@ -613,7 +551,6 @@ def main() -> int:
             else:
                 print(msg + " -> kept (use --drop-short to remove)")
 
-        # write one parquet per (dataset, domain), plus a balanced sample
         for domain, g in part.groupby("domain"):
             fp = out_dir / f"{spec.name}_{domain}.parquet"
             g.reset_index(drop=True).to_parquet(fp, index=False)

@@ -26,10 +26,6 @@ DETECTORS = {
 }
 
 
-# --------------------------------------------------------------------------- #
-# semantics guard                                                              #
-# --------------------------------------------------------------------------- #
-
 def semantic_key(t: str) -> str:
     """Everything the operators are allowed to change, removed. If two texts share
     this key they differ only in whitespace and punctuation *style*, never in
@@ -37,23 +33,19 @@ def semantic_key(t: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", unicodedata.normalize("NFKC", t).lower())
 
 
-# --------------------------------------------------------------------------- #
-# formatting profile                                                           #
-# --------------------------------------------------------------------------- #
-
 @dataclass
 class FormatProfile:
     """Measured formatting style of one class of one subset."""
-    p_newline: float           # fraction of docs containing a newline
-    line_lens: list[int]       # empirical distribution of line lengths (chars)
-    p_double_space: float      # per sentence boundary, rate of >=2 spaces
-    p_curly_quote: float       # of quote chars, fraction that are curly
-    p_em_dash: float           # of dash chars, fraction that are en/em dashes
-    mean_ws_runs: float        # whitespace runs per 1k chars (diagnostic only)
+    p_newline: float
+    line_lens: list[int]
+    p_double_space: float
+    p_curly_quote: float
+    p_em_dash: float
+    mean_ws_runs: float
 
     def to_json(self) -> dict:
         d = asdict(self)
-        d["line_lens"] = d["line_lens"][:2000]  # keep the artifact file small
+        d["line_lens"] = d["line_lens"][:2000]
         return d
 
 
@@ -64,7 +56,7 @@ def fit_profile(texts: list[str], rng: np.random.Generator) -> FormatProfile:
     for t in with_nl:
         line_lens += [len(l) for l in t.split("\n") if l.strip()]
     if not line_lens:
-        line_lens = [10_000]  # no wrapping observed -> effectively never wrap
+        line_lens = [10_000]
 
     bnd = dsp = 0
     for t in texts:
@@ -88,10 +80,6 @@ def fit_profile(texts: list[str], rng: np.random.Generator) -> FormatProfile:
     )
 
 
-# --------------------------------------------------------------------------- #
-# operators                                                                    #
-# --------------------------------------------------------------------------- #
-
 def canon(text: str) -> str:
     """Remove extraction-inherited formatting. Words untouched."""
     t = unicodedata.normalize("NFKC", text)
@@ -106,7 +94,6 @@ def inject(text: str, prof: FormatProfile, rng: np.random.Generator) -> str:
     reflects only `prof`, not the document's original formatting."""
     t = canon(text)
 
-    # 1. punctuation style
     if prof.p_curly_quote > 0:
         t = "".join(
             ("“" if rng.random() < prof.p_curly_quote else c) if c == '"' else
@@ -116,13 +103,11 @@ def inject(text: str, prof: FormatProfile, rng: np.random.Generator) -> str:
     if prof.p_em_dash > 0:
         t = re.sub(r"-", lambda _: "—" if rng.random() < prof.p_em_dash else "-", t)
 
-    # 2. double spaces after sentence boundaries
     if prof.p_double_space > 0:
         t = SENT_END.sub(
             lambda m: m.group(1) + ("  " if rng.random() < prof.p_double_space else " "), t
         )
 
-    # 3. line wrapping at the profile's line lengths
     if rng.random() < prof.p_newline and prof.line_lens:
         lens = np.asarray(prof.line_lens)
         out, cur, target = [], [], int(rng.choice(lens))
@@ -136,10 +121,6 @@ def inject(text: str, prof: FormatProfile, rng: np.random.Generator) -> str:
         t = "\n".join(out)
     return t
 
-
-# --------------------------------------------------------------------------- #
-# build the counterfactual evaluation sets                                     #
-# --------------------------------------------------------------------------- #
 
 def build(data: Path, out: Path, n_per_class: int) -> None:
     files = [
@@ -167,9 +148,7 @@ def build(data: Path, out: Path, n_per_class: int) -> None:
                 variants = {
                     "original": t,
                     "canon": canon(t),
-                    # the counterfactual: machine text dressed as human
                     "inject_human": inject(t, pH, rng),
-                    # the placebo: machine text dressed as machine
                     "inject_machine": inject(t, pM, rng),
                 }
                 key = semantic_key(t)
@@ -201,10 +180,6 @@ def build(data: Path, out: Path, n_per_class: int) -> None:
     print(f"\nwrote {out}/counterfactual_sets.parquet, profiles.json, format_profiles.csv")
 
 
-# --------------------------------------------------------------------------- #
-# scoring + ARS                                                                #
-# --------------------------------------------------------------------------- #
-
 def score(out: Path, detector: str, batch_size: int = 16, max_len: int = 512,
           device: str | None = None, fp16: bool = True) -> None:
     """Run a HF sequence classifier over every variant and compute ARS."""
@@ -222,21 +197,11 @@ def score(out: Path, detector: str, batch_size: int = 16, max_len: int = 512,
               "check that torch sees your accelerator (torch.cuda.is_available()).", flush=True)
     tok = AutoTokenizer.from_pretrained(repo)
     mdl = AutoModelForSequenceClassification.from_pretrained(repo).to(dev).eval()
-    # fp16 halves the memory and roughly doubles throughput on CUDA; inference only, and
-    # we threshold at 0.5 so the reduced precision cannot change a decision meaningfully.
     if dev == "cuda" and fp16:
         mdl = mdl.half()
 
     df = pd.read_parquet(out / "counterfactual_sets.parquet")
 
-    # ---- which logit index means "machine"? ---------------------------------
-    # NEVER trust the label map alone. Several widely-used public detectors ship
-    # config.id2label = None (RADAR, PirateXX, desklib), and at least one ships a
-    # reversed map (openai-community/roberta-base-openai-detector is
-    # {0: 'Fake', 1: 'Real'}). Guessing index 1 would silently mirror-image every
-    # ARS value, which looks like a strong result rather than an error. So we read
-    # the label map if present, then *verify it empirically* against the gold
-    # labels of the unmodified documents and flip if it disagrees.
     id2l = ({int(k): str(v).lower() for k, v in mdl.config.id2label.items()}
             if getattr(mdl.config, "id2label", None) else {})
     machine_idx = next(
@@ -286,40 +251,27 @@ def score(out: Path, detector: str, batch_size: int = 16, max_len: int = 512,
               "cal_acc": acc, "recall_machine": rec_m, "recall_human": rec_h}
     (out / f"orientation_{detector.replace('/', '_')}.json").write_text(json.dumps(orient, indent=1))
     s_all = _scores(df.text.tolist(), machine_idx)
-    df["score"] = s_all                      # P(machine), for the margin-shift metric
+    df["score"] = s_all
     df["pred"] = (s_all >= 0.5).astype(np.int64)
 
     piv = df.pivot_table(index=["subset", "label", "doc_id"], columns="variant",
                          values="pred", aggfunc="first")
-    # P(machine) per variant, for the threshold-free margin metric. The flip rate needs a
-    # decision and therefore a threshold; likelihood-based scorers have no well-calibrated
-    # threshold on this data (see the AUC/F1 gap), so their flip rate would partly reflect
-    # an arbitrary cut. The margin shift is comparable across detector families.
     sc = df.pivot_table(index=["subset", "label", "doc_id"], columns="variant",
                         values="score", aggfunc="first")
     res = []
     for subset, g in piv.groupby(level="subset"):
-        gm = g.xs(1, level="label")   # machine docs
-        gh = g.xs(0, level="label")   # human docs
-        sm = sc.xs(subset, level="subset").xs(1, level="label")   # index: doc_id
-        # correct-and-then-flipped, under the counterfactual and under the placebo
+        gm = g.xs(1, level="label")
+        gh = g.xs(0, level="label")
+        sm = sc.xs(subset, level="subset").xs(1, level="label")
         base_m = gm[gm.original == 1]
         base_h = gh[gh.original == 0]
         ars_m = float((base_m.inject_human == 0).mean()) if len(base_m) else float("nan")
         plc_m = float((base_m.inject_machine == 0).mean()) if len(base_m) else float("nan")
         ars_h = float((base_h.canon == 1).mean()) if len(base_h) else float("nan")
-        # base_m is indexed by (subset, doc_id); sm only by doc_id -- align on doc_id
         ids = base_m.index.get_level_values("doc_id") if len(base_m) else []
         smb = sm.loc[sm.index.intersection(ids)] if len(base_m) else sm.iloc[:0]
         d_cf = float((smb.original - smb.inject_human).mean()) if len(smb) else float("nan")
         d_pl = float((smb.original - smb.inject_machine).mean()) if len(smb) else float("nan")
-        # UNCONDITIONED margin: over *all* machine documents, not only the correctly
-        # classified ones. Conditioning on correctness selects a non-random subset -- for a
-        # detector with low machine recall, plausibly the documents whose formatting already
-        # looks most machine-like, which are then the ones an injected human profile moves
-        # most. Measured on RADAR, the conditioned margin on the arXiv subsets is +0.096 and
-        # the unconditioned margin is -0.004: the entire effect was selection. Always report
-        # both; if they disagree, the unconditioned value is the defensible one.
         u_cf = float((sm.original - sm.inject_human).mean())
         u_pl = float((sm.original - sm.inject_machine).mean())
         res.append({
@@ -330,7 +282,6 @@ def score(out: Path, detector: str, batch_size: int = 16, max_len: int = 512,
             "ARS_machine_placebo": round(plc_m, 3),
             "ARS_human": round(ars_h, 3),
             "ARS_net": round(ars_m - plc_m, 3),
-            # threshold-free: mean drop in P(machine), counterfactual minus placebo
             "margin_cf": round(d_cf, 4),
             "margin_placebo": round(d_pl, 4),
             "margin_net": round(d_cf - d_pl, 4),

@@ -49,27 +49,14 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-# numpy's Accelerate BLAS backend on Apple silicon emits spurious "invalid value /
-# divide by zero / overflow encountered in matmul" RuntimeWarnings from sklearn's
-# solvers even when the results contain no NaN/Inf -- verified against output. They
-# are suppressed here rather than silenced by accident; they also flood logs badly
-# enough on long runs to cost real time.
 warnings.filterwarnings("ignore", message=".*encountered in.*", category=RuntimeWarning)
-# Runtime filters do not reach joblib/loky worker processes, and cross_val_predict runs
-# with n_jobs=-1, so the workers would still flood the log. PYTHONWARNINGS is inherited
-# by the spawned interpreters, which is the only reliable way to silence them.
 os.environ.setdefault("PYTHONWARNINGS", "ignore::RuntimeWarning")
 
 SEED = 0
-N_PER_CLASS = 10_000  # cap so every subset contributes comparably; CheckGPT has 200k machine rows
+N_PER_CLASS = 10_000
 N_BOOT = 1000
 N_FOLDS = 5
 
-# --------------------------------------------------------------------------- #
-# Features. Every one is content-free: no word identities, no topic signal.    #
-# Rates are per character so they are not proxies for length; length enters    #
-# only through the four explicit size features.                                #
-# --------------------------------------------------------------------------- #
 
 _SENT_SPLIT = re.compile(r"[.!?]+")
 _WS_RUN = re.compile(r"[ \t]{2,}")
@@ -91,17 +78,14 @@ def features(text: str) -> dict[str, float]:
     counts = pd.Series(lower).value_counts() if words else pd.Series(dtype=int)
 
     return {
-        # size
         "n_chars": len(text),
         "n_words": len(words),
         "n_sents": len(sents),
         "mean_sent_len": nw / ns,
-        # word shape
         "mean_word_len": float(np.mean(lens)),
         "std_word_len": float(np.std(lens)),
         "ttr": len(set(lower)) / nw,
         "hapax_rate": float((counts == 1).sum()) / nw if words else 0.0,
-        # punctuation, per char
         "r_comma": text.count(",") / n,
         "r_period": text.count(".") / n,
         "r_semicolon": text.count(";") / n,
@@ -112,13 +96,11 @@ def features(text: str) -> dict[str, float]:
         "r_hyphen": text.count("-") / n,
         "r_exclam": text.count("!") / n,
         "r_question": text.count("?") / n,
-        # the formatting features Exp. B removes
         "r_newline": text.count("\n") / n,
         "r_ws_run": len(_WS_RUN.findall(text)) / n,
         "r_curly_quote": len(_CURLY_Q.findall(text)) / n,
         "r_fancy_dash": len(_FANCY_DASH.findall(text)) / n,
         "r_nonascii": sum(ord(c) > 127 for c in text) / n,
-        # domain-specific surface markers
         "r_digit": sum(c.isdigit() for c in text) / n,
         "r_upper": sum(c.isupper() for c in text) / n,
         "r_number_tok": len(_NUM.findall(text)) / nw,
@@ -140,10 +122,6 @@ def normalize(text: str) -> str:
     t = re.sub(r"\s+", " ", t)
     return t.strip()
 
-
-# --------------------------------------------------------------------------- #
-# Evaluation                                                                   #
-# --------------------------------------------------------------------------- #
 
 def _auc(y: np.ndarray, score: np.ndarray) -> float:
     """Rank-based AUC. ~50x faster than sklearn's in a bootstrap loop."""
@@ -190,8 +168,6 @@ def eval_variant(texts: list[str], y: np.ndarray, tfidf: bool = True) -> tuple[d
     X = F.values
     cv = StratifiedKFold(N_FOLDS, shuffle=True, random_state=SEED)
 
-    # One CV pass, not two: sklearn's predict is argmax of predict_proba for a
-    # binary problem, so thresholding the probabilities is identical and halves the fits.
     proba = cross_val_predict(_lr(), X, y, cv=cv, method="predict_proba", n_jobs=-1)[:, 1]
     pred = (proba >= 0.5).astype(np.int64)
     (f1_lo, f1_hi), (auc_lo, auc_hi) = bootstrap_ci(y, pred, proba)
@@ -205,7 +181,6 @@ def eval_variant(texts: list[str], y: np.ndarray, tfidf: bool = True) -> tuple[d
         "shallow_auc_hi": auc_hi,
     }
 
-    # length-only and formatting-only ablations
     for name, cols in [
         ("lenonly", ["n_words"]),
         ("fmtonly", FORMATTING_FEATURES),
@@ -224,7 +199,6 @@ def eval_variant(texts: list[str], y: np.ndarray, tfidf: bool = True) -> tuple[d
         tp = cross_val_predict(tf, texts, y, cv=cv, n_jobs=-1)
         row["tfidf_f1"] = f1_score(y, tp, average="macro")
 
-    # single-feature AUCs, folded so 1 always means "separable"
     feats = []
     for c in F.columns:
         v = F[c].values
@@ -270,12 +244,6 @@ def main() -> None:
         y = df.label.to_numpy()
         print(f"\n=== {name}  n={len(df)} ({int((y == 0).sum())} human / {int((y == 1).sum())} machine) ===")
 
-        # TF-IDF is computed for the raw variant only and reused for the canonicalised
-        # one. TfidfVectorizer's default token pattern (\b\w\w+\b) discards whitespace
-        # and standalone punctuation, so canonicalisation cannot change a single feature
-        # value -- the two runs are provably identical, and computing both was the single
-        # most expensive redundancy in this script. (This blindness is the same one that
-        # makes SentencePiece-tokenised detectors unable to see the artifact at all.)
         tfidf_cache: float | None = None
         for variant, texts in [
             ("raw", df.text.tolist()),
@@ -302,7 +270,6 @@ def main() -> None:
                 + f"\n              top: {top}"
             )
 
-        # the Exp. B headline: how much of the separability was formatting?
         raw, nrm = main_rows[-2], main_rows[-1]
         print(f"  >> Δ(raw→norm) F1 = {raw['shallow_f1'] - nrm['shallow_f1']:+.3f}")
 
@@ -311,7 +278,6 @@ def main() -> None:
     M.to_csv(f"{out}_main.csv", index=False)
     F.to_csv(f"{out}_features.csv", index=False)
 
-    # main-table fragment
     piv = M.pivot(index="subset", columns="variant")
     lines = [
         "| Subset | Shallow-F1 (raw) | 95% CI | Shallow-F1 (norm) | Δ | len-only AUC | fmt-only AUC | TF-IDF F1 |",

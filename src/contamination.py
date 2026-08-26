@@ -40,7 +40,7 @@ import pandas as pd
 
 SEED = 0
 N_PERM = 128
-N_BANDS = 32          # 32 bands x 4 rows -> ~0.8 Jaccard sensitivity
+N_BANDS = 32
 SHINGLE = 5
 MERSENNE = (1 << 61) - 1
 _NONWORD = re.compile(r"[^a-z0-9 ]+")
@@ -73,7 +73,6 @@ def signatures(texts: list[str], a: np.ndarray, b: np.ndarray) -> np.ndarray:
     sig = np.empty((len(texts), N_PERM), dtype=np.uint64)
     for i, t in enumerate(texts):
         h = shingle_hashes(t).astype(np.uint64)
-        # (a*h + b) mod (2^61 - 1), then min over shingles
         perm = (np.outer(a, h) + b[:, None]) % MERSENNE
         sig[i] = perm.min(axis=1)
     return sig
@@ -160,7 +159,6 @@ def main() -> None:
             [_h64(norm_text(t)) for t in df.text], dtype=np.uint64
         )
 
-        # internal duplication
         _, counts = np.unique(exact[name], return_counts=True)
         exact_dup = 100.0 * (len(exact[name]) - len(counts)) / len(exact[name])
         near = pct(matched_mask(
@@ -187,8 +185,6 @@ def main() -> None:
                 continue
             mask = matched_mask(sigs[A], keys[A], idxs[B], sigs[B], args.threshold)
             ex = 100.0 * np.mean([h in setB_exact[B] for h in exact[A].tolist()])
-            # split by label: human overlap = shared source corpora,
-            # machine overlap = reused generations. Different failure modes.
             lab_a = data[A].label.to_numpy()
             near = pct(mask)
             per_label = {
