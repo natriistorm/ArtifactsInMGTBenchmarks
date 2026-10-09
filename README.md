@@ -31,8 +31,7 @@ We audit ten scientific-document subsets drawn from six MGT-detection resources 
 
 The two questions have different answers, and the gap between them is the point of the paper.
 
-<!-- TODO: optionally add a figure -->
-<!-- ![Overview figure](FIGURE_LINK) -->
+[Overview of method](static/figure.pdf)
 
 ---
 
@@ -42,16 +41,16 @@ We do **not** redistribute the original benchmarks. Download each resource from 
 
 | Subset | Document type | \|H\| | \|M\| | Source |
 |---|---|---:|---:|---|
-| M4 arXiv | abstracts | 15,000 | 15,000 | [M4_LINK] |
-| M4 PeerRead | peer reviews | 2,930 | 2,930 | [M4_LINK] |
-| SemEval24 arXiv | abstracts | 15,498 | 11,999 | [SEMEVAL24_LINK] |
-| SemEval24 PeerRead | peer reviews | 2,357 | 9,374 | [SEMEVAL24_LINK] |
-| COLING25 arXiv | abstracts | 22,484 | 30,684 | [COLING25_LINK] |
-| COLING25 PeerRead | peer reviews | 3,300 | 16,169 | [COLING25_LINK] |
-| IDMGSP | paper introductions | 8,000 | 8,000 | [IDMGSP_LINK] |
-| GPABench2 CS | abstracts | 50,000 | 200,000 | [GPABENCH2_LINK] |
-| GPABench2 Physics | abstracts | 50,000 | 200,000 | [GPABENCH2_LINK] |
-| CHEAT | abstracts (IEEE) | 15,395 | 15,395 | [CHEAT_LINK] |
+| M4 arXiv | abstracts | 15,000 | 15,000 | [GitHub](https://github.com/mbzuai-nlp/M4/tree/main) |
+| M4 PeerRead | peer reviews | 2,930 | 2,930 | [GitHub](https://github.com/mbzuai-nlp/M4/tree/main) |
+| SemEval24 arXiv | abstracts | 15,498 | 11,999 | Currently not available |
+| SemEval24 PeerRead | peer reviews | 2,357 | 9,374 | Currently not available |
+| COLING25 arXiv | abstracts | 22,484 | 30,684 | [GitHub](https://github.com/mbzuai-nlp/COLING-2025-Workshop-on-MGT-Detection-Task1/tree/main) |
+| COLING25 PeerRead | peer reviews | 3,300 | 16,169 | [GitHub](https://github.com/mbzuai-nlp/COLING-2025-Workshop-on-MGT-Detection-Task1/tree/main) |
+| IDMGSP | paper introductions | 8,000 | 8,000 | [HuggingFace](https://huggingface.co/datasets/tum-nlp/IDMGSP) |
+| GPABench2 CS | abstracts | 50,000 | 200,000 | [GitHub](https://github.com/liuzey/CheckGPT-v2) |
+| GPABench2 Physics | abstracts | 50,000 | 200,000 | [GitHub](https://github.com/liuzey/CheckGPT-v2) |
+| CHEAT | abstracts (IEEE) | 15,395 | 15,395 | [GitHub](https://github.com/botianzhe/CHEAT) |
 
 All subsets are English; all machine documents are generated from scratch (no rewriting/polishing regimes). Selection criteria and per-subset isolation details are in Appendix C of the paper.
 
