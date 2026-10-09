@@ -31,8 +31,7 @@ We audit ten scientific-document subsets drawn from six MGT-detection resources 
 
 The two questions have different answers, and the gap between them is the point of the paper.
 
-[Overview of method](static/figure.pdf)
-
+![Overview of method](static/figure.png)
 ---
 
 ## Data
