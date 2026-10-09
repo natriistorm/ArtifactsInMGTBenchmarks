@@ -7,8 +7,7 @@ To appear in EMNLP 2026 DocInsights Workshop Prcoeedings
 
 **Anastasia Voznyuk**¹ · **Andrey Grabovoy**²
 
-📄 **Paper:** [PAPER_PDF_LINK] · 📚 **ACL Anthology:** [ACL_ANTHOLOGY_LINK]
-
+![Overview of method](static/figure.png)
 ---
 
 ## TL;DR
@@ -31,7 +30,6 @@ We audit ten scientific-document subsets drawn from six MGT-detection resources 
 
 The two questions have different answers, and the gap between them is the point of the paper.
 
-![Overview of method](static/figure.png)
 ---
 
 ## Data
