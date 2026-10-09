@@ -64,9 +64,3 @@ python src/build_subsets.py --source-dir data/raw --out-dir data/subsets
 2. **Ship the surface-probe score and per-feature AUCs with the resource.** A content-free probe run at release time flags the subsets on which a deployed detector will later prove format-dependent (Spearman ρ = 0.94 with ARS_net).
 3. **Document which tokenizer families a benchmark advantages.** The same resource can be trivial for a BPE model and look hard for a SentencePiece model.
 
-## Contact
-
-- Anastasia Voznyuk — voznyuk@advacheck.com
-- Andrey Grabovoy — andriy.graboviy@gmail.com
-
-Issues and pull requests are welcome.
