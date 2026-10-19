@@ -2,7 +2,7 @@
 To appear in EMNLP 2026 DocInsights Workshop Prcoeedings
 
 [![Paper](https://img.shields.io/badge/Paper-PDF-b31b1b.svg)](PAPER_PDF_LINK)
-[![arXiv](https://img.shields.io/badge/arXiv-XXXX.XXXXX-b31b1b.svg)](ARXIV_LINK)
+[![arXiv](https://img.shields.io/badge/arXiv-2610.13583-b31b1b.svg)](ARXIV_LINK)
 [![License](https://img.shields.io/badge/License-LICENSE_NAME-blue.svg)](LICENSE_LINK)
 
 **Anastasia Voznyuk**¹ · **Andrey Grabovoy**²
