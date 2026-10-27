@@ -1,7 +1,7 @@
 # Measuring Artifact Reliance in Machine-Generated Text Detectors
 To appear in EMNLP 2026 DocInsights Workshop Prcoeedings
 
-[![Paper](https://img.shields.io/badge/Paper-PDF-b31b1b.svg)](PAPER_PDF_LINK)
+[![Paper](https://img.shields.io/badge/Paper-PDF-b31b1b.svg)]((https://aclanthology.org/2026.docinsights-1.13/))
 [![arXiv](https://img.shields.io/badge/arXiv-2610.13583-b31b1b.svg)](https://arxiv.org/abs/2610.13583)
 [![License](https://img.shields.io/badge/License-LICENSE_NAME-blue.svg)](LICENSE_LINK)
 
